@@ -1,6 +1,6 @@
 module Maelstrom
  ( MessageHandler
- , Node
+ , Node (node_id, node_peers)
  , runNode
  , reply
  , addHandler
@@ -9,13 +9,24 @@ module Maelstrom
  , message_type
  , set_message_type
  , mkNode
+ , getNode
+ , getState
+ , modifyState
+ , add_key_values_int
+ , nodeIdAsNumber
  ) where
 
-import           Control.Concurrent.Async   (wait, withAsync)
+
+import           Control.Concurrent.Async    (wait, withAsync)
+import           Control.Concurrent.STM      (atomically)
+import           Control.Concurrent.STM.TVar
+import           Control.Monad.IO.Class
+import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Types
-import qualified Data.ByteString.Lazy.Char8 as BSL8
-import           Data.Maybe                 (fromJust)
+import qualified Data.ByteString.Lazy.Char8  as BSL8
+import           Data.Maybe                  (fromJust)
+import           Data.String                 (IsString (..))
 import           Deriving.Aeson.Stock
 import           System.IO
 
@@ -27,20 +38,45 @@ data Message = Message
   deriving stock (Show, Generic)
   deriving (FromJSON, ToJSON) via PrefixedSnake "message_" Message
 
-type HandlerFunc = Message -> IO ()
-
-data MessageHandler = MessageHandler
-  { handler_name :: !String
-  , handler_func :: HandlerFunc
+data State a = State
+  { state_node :: Node a
+  , state_user :: TVar a
   }
 
-data Node = Node
-  { node_handlers :: [(String, MessageHandler)]
+type Context a = ReaderT (State a) IO
+
+getNode :: Context a (Node a)
+getNode = asks state_node
+
+nodeIdAsNumber :: Node a -> Int
+nodeIdAsNumber node =
+  case node_id node of
+    Just ('n' : n) -> read n
+    _              -> error "Invalid node ID"
+
+getState :: Context a a
+getState = liftIO . readTVarIO =<< asks state_user
+
+modifyState :: (a -> a) -> Context a a
+modifyState f = do
+  state <- asks state_user
+  old_state <- liftIO $ readTVarIO state
+  liftIO $ atomically $ stateTVar state (\s -> (old_state, f s))
+
+type HandlerFunc a = Message -> Context a ()
+
+data MessageHandler a = MessageHandler
+  { handler_name :: !String
+  , handler_func :: HandlerFunc a
+  }
+
+data Node a = Node
+  { node_handlers :: [(String, MessageHandler a)]
   , node_id       :: !(Maybe String)
   , node_peers    :: ![String]
   }
 
-mkNode :: Node
+mkNode :: Node a
 mkNode = Node
   { node_handlers = []
   , node_id       = Nothing
@@ -59,6 +95,15 @@ set_in_reply_to id' msg =
       msg { message_body = o' }
     _ -> undefined
 
+add_key_values_int :: [(String, Int)] -> Message -> Message
+add_key_values_int kvs msg =
+  case message_body msg of
+    Object o ->
+      let Object new_kvs = object . map (uncurry (.=)) . map (\(k, v) -> (fromString k, v)) $ kvs
+          o' = Object (new_kvs <> o) in
+      msg { message_body = o' }
+    _ -> undefined
+
 set_message_type :: String -> Message -> Message
 set_message_type typ msg =
   case message_body msg of
@@ -69,12 +114,12 @@ set_message_type typ msg =
     _ -> undefined
 
 -- | Reply to the message.
-reply :: Message -> IO ()
+reply :: MonadIO m => Message -> m ()
 reply msg = do
   let msg' = set_in_reply_to
               (message_id msg)
               (msg { message_src = message_dest msg , message_dest = message_src msg })
-  sendMessage msg'
+  liftIO $ sendMessage msg'
 
 -- | For internal use only.
 sendMessage :: Message -> IO ()
@@ -88,19 +133,22 @@ sendMessage msg = do
   BSL8.putStrLn strPayload
   hFlush stdout
 
-runNode :: Node -> IO ()
-runNode node = do
+runNode :: a -> Node a -> IO ()
+runNode state node = do
   line <- getLine
+  state' <- newTVarIO state
+
   if null line
   then pure ()
   else
     case mkMessage line of
       Just msg -> do
-        node' <- handleMessage node msg
-        runNode node'
+        node' <- handleMessage state' node msg
+        new_state <- readTVarIO state'
+        runNode new_state node'
       Nothing  -> error $ "Failed to parse message: " <> line
 
-addHandler :: (String, HandlerFunc) -> Node -> Node
+addHandler :: (String, HandlerFunc a) -> Node a -> Node a
 addHandler (name, func) node =
   let handler = MessageHandler name func
       handlers = (name, handler) : node_handlers node
@@ -120,15 +168,16 @@ message_id msg =
         return id'
     in fromJust $ parseMaybe parser $ message_body msg
 
-handleMessage :: Node -> Message -> IO Node
-handleMessage node msg =
-  let handler = lookup (message_type msg) (node_handlers node) in
+handleMessage :: TVar a -> Node a -> Message -> IO (Node a)
+handleMessage state node msg =
+  let handler = lookup (message_type msg) (node_handlers node)
+      usr_state = State node state in
   case (message_type msg, handler) of
     ("init", _)    -> _init node msg
-    (_, Just hdlr) -> withAsync (handler_func hdlr msg) wait >> pure node
+    (_, Just hdlr) -> withAsync (runReaderT (handler_func hdlr msg) usr_state) wait >> pure node
     (typ, _)       -> error $ "No handler registered for message type: " <> typ
 
-_init :: Node -> Message -> IO Node
+_init :: Node a -> Message -> IO (Node a)
 _init node msg = do
   case node_id node of
     Just _  -> error "Node has already been initialized"

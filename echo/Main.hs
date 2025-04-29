@@ -4,10 +4,10 @@ import           Data.Function ((&))
 import           Maelstrom
 
 
-echoHandler :: HandlerFunc
+echoHandler :: HandlerFunc ()
 echoHandler = reply . set_message_type "echo_ok"
 
 main :: IO ()
-main = runNode $ mkNode & addHandler ("echo", echoHandler)
+main = runNode () $ mkNode & addHandler ("echo", echoHandler)
 
 
