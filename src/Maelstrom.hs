@@ -1,5 +1,5 @@
 module Maelstrom
- ( MessageHandler
+ ( MessageHandler (..)
  , Node (node_id, node_peers)
  , runNode
  , reply
@@ -90,13 +90,7 @@ mkMessage :: String -> Maybe Message
 mkMessage = decode . BSL8.pack
 
 set_in_reply_to :: Int -> Message -> Message
-set_in_reply_to id' msg =
-  case message_body msg of
-    Object o ->
-      let Object kv = object ["in_reply_to" .= id']
-          o' = Object (kv <> o) in
-      msg { message_body = o' }
-    _ -> undefined
+set_in_reply_to id' msg = add_kv "in_reply_to" id' msg
 
 -- | Add a single key/value pair to the message.
 add_kv :: ToJSON value => String -> value -> Message -> Message
