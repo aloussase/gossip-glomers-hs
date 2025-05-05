@@ -1,8 +1,6 @@
 module Main where
 
-import           Control.Monad.IO.Class (liftIO)
 import           Data.Function          ((&))
-import           Data.Maybe             (fromJust)
 import           Maelstrom
 
 type State = Int
@@ -17,7 +15,7 @@ uniqueIdsHandler msg = do
 
   reply
     $ set_message_type "generate_ok"
-    $ add_key_values_int [("id", id)]
+    $ add_kvs [("id", id)]
     $ msg
 
 main :: IO ()

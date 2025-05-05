@@ -12,11 +12,14 @@ module Maelstrom
  , getNode
  , getState
  , modifyState
- , add_key_values_int
  , nodeIdAsNumber
+ , add_kv
+ , add_kvs
+ , get_value
  ) where
 
 
+import Data.List (foldl')
 import           Control.Concurrent.Async    (wait, withAsync)
 import           Control.Concurrent.STM      (atomically)
 import           Control.Concurrent.STM.TVar
@@ -95,14 +98,29 @@ set_in_reply_to id' msg =
       msg { message_body = o' }
     _ -> undefined
 
-add_key_values_int :: [(String, Int)] -> Message -> Message
-add_key_values_int kvs msg =
-  case message_body msg of
-    Object o ->
-      let Object new_kvs = object . map (uncurry (.=)) . map (\(k, v) -> (fromString k, v)) $ kvs
-          o' = Object (new_kvs <> o) in
-      msg { message_body = o' }
-    _ -> undefined
+-- | Add a single key/value pair to the message.
+add_kv :: ToJSON value => String -> value -> Message -> Message
+add_kv k v m =
+    case message_body m of
+        Object o ->
+            let Object new_kvs = object [fromString k .= toJSON v]
+                o' = Object (new_kvs <> o) in
+            m { message_body = o' }
+        _ -> undefined
+
+-- | Add multiple key/value pairs to the Message.
+add_kvs :: ToJSON value => [(String, value)] -> Message -> Message
+add_kvs kvs m = foldl' (\m' (k, v) -> add_kv k v m') m kvs
+
+-- | Get a value from the message payload.
+get_value :: FromJSON value => String -> Message -> value
+get_value k m =
+    let parser = withObject "Extract user value" $ \o -> do
+                    v <- o .: fromString k
+                    case fromJSON v of
+                        Error err -> error err
+                        Success res -> return res
+    in fromJust $ parseMaybe parser $ message_body m
 
 set_message_type :: String -> Message -> Message
 set_message_type typ msg =
@@ -199,5 +217,3 @@ _init node msg = do
                   }
             sendMessage msg' >> pure (node { node_id = Just id', node_peers = ids })
           _               -> error "Invalid init message"
-
-
