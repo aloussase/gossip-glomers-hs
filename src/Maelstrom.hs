@@ -16,9 +16,11 @@ module Maelstrom
  , add_kv
  , add_kvs
  , get_value
+ , delete_key
  ) where
 
 
+import qualified Data.Aeson.KeyMap as KM
 import Data.List (foldl')
 import           Control.Concurrent.Async    (wait, withAsync)
 import           Control.Concurrent.STM      (atomically)
@@ -115,6 +117,14 @@ get_value k m =
                         Error err -> error err
                         Success res -> return res
     in fromJust $ parseMaybe parser $ message_body m
+
+delete_key :: String -> Message -> Message
+delete_key k m =
+    case message_body m of
+        Object o ->
+            let new_kvs = KM.delete (fromString k) o in
+            m { message_body = Object new_kvs }
+        _ -> undefined
 
 set_message_type :: String -> Message -> Message
 set_message_type typ msg = add_kv "type" typ msg
