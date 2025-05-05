@@ -167,18 +167,10 @@ addHandler (name, func) node =
   in node { node_handlers = handlers }
 
 message_type :: Message -> String
-message_type msg =
-  let parser = withObject "Message type parser" $ \o -> do
-        typ <- o .: "type"
-        return typ
-    in fromJust $ parseMaybe parser $ message_body msg
+message_type = get_value "type"
 
 message_id :: Message -> Int
-message_id msg =
-  let parser = withObject "Message ID parser" $ \o -> do
-        id' <- o .: "msg_id"
-        return id'
-    in fromJust $ parseMaybe parser $ message_body msg
+message_id = get_value "msg_id"
 
 handleMessage :: TVar a -> Node a -> Message -> IO (Node a)
 handleMessage state node msg =
