@@ -123,13 +123,7 @@ get_value k m =
     in fromJust $ parseMaybe parser $ message_body m
 
 set_message_type :: String -> Message -> Message
-set_message_type typ msg =
-  case message_body msg of
-    Object o ->
-      let Object kv = object ["type" .= typ]
-          o' = Object (kv <> o) in
-      msg { message_body = o' }
-    _ -> undefined
+set_message_type typ msg = add_kv "type" typ msg
 
 -- | Reply to the message.
 reply :: MonadIO m => Message -> m ()
