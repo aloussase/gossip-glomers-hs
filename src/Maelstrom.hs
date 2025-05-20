@@ -17,19 +17,20 @@ module Maelstrom
  , add_kvs
  , get_value
  , delete_key
+ , sendTo
  ) where
 
 
-import qualified Data.Aeson.KeyMap as KM
-import Data.List (foldl')
 import           Control.Concurrent.Async    (wait, withAsync)
 import           Control.Concurrent.STM      (atomically)
 import           Control.Concurrent.STM.TVar
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.Aeson
+import qualified Data.Aeson.KeyMap           as KM
 import           Data.Aeson.Types
 import qualified Data.ByteString.Lazy.Char8  as BSL8
+import           Data.List                   (foldl')
 import           Data.Maybe                  (fromJust)
 import           Data.String                 (IsString (..))
 import           Deriving.Aeson.Stock
@@ -114,7 +115,7 @@ get_value k m =
     let parser = withObject "Extract user value" $ \o -> do
                     v <- o .: fromString k
                     case fromJSON v of
-                        Error err -> error err
+                        Error err   -> error err
                         Success res -> return res
     in fromJust $ parseMaybe parser $ message_body m
 
@@ -148,6 +149,12 @@ sendMessage msg = do
       strPayload = encode payload
   BSL8.putStrLn strPayload
   hFlush stdout
+
+sendTo :: String -> Node a -> Message -> IO ()
+sendTo peer node msg =
+  let myself = node_id node
+      msg' = msg { message_src = fromJust myself, message_dest = peer } in
+  sendMessage msg'
 
 runNode :: a -> Node a -> IO ()
 runNode state node = do

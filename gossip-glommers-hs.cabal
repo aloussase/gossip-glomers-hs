@@ -53,6 +53,15 @@ executable single-node-broadcast
     hs-source-dirs:   single_node_broadcast
     default-language: Haskell2010
 
+executable multi-node-broadcast
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base ^>=4.17.2.1,
+        gossip-glommers-hs
+    hs-source-dirs:   multi_node_broadcast
+    default-language: Haskell2010
+
 test-suite gossip-glommers-hs-test
     import:           warnings
     default-language: Haskell2010
